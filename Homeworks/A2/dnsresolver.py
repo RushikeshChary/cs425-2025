@@ -24,6 +24,11 @@ def send_dns_query(server, domain):
         query = dns.message.make_query(domain, dns.rdatatype.A)  # Construct the DNS query
         # TODO: Send the query using UDP 
         # Note that above TODO can be just a return statement with the UDP query!
+
+        # Enable EDNS with a 4096-byte UDP buffer (increases response capacity)
+        query.use_edns(0, payload=4096)
+        response = dns.query.udp(query, server, timeout=TIMEOUT)
+        return response  # Return the response if successful
     except Exception:
         return None  # If an error occurs (timeout, unreachable server, etc.), return None
 
@@ -46,8 +51,14 @@ def extract_next_nameservers(response):
 
     # TODO: Resolve the extracted NS hostnames to IP addresses
     # To TODO, you would have to write a similar loop as above
+    # Match extracted NS hostnames with IP addresses from the additional section
+    for rrset in response.additional:
+        if rrset.rdtype == dns.rdatatype.A:
+            for rr in rrset:
+                if rrset.name.to_text() in ns_names:
+                    ns_ips.append(rr.address)
+                    print(f"Resolved {rrset.name.to_text()} to {rr.address}")
 
-    
     return ns_ips  # Return list of resolved nameserver IPs
 
 def iterative_dns_lookup(domain):
@@ -76,6 +87,13 @@ def iterative_dns_lookup(domain):
             # If no answer, extract the next set of nameservers
             next_ns_list = extract_next_nameservers(response)
             # TODO: Move to the next resolution stage, i.e., it is either TLD, ROOT, or AUTH
+            if stage == "ROOT":
+                stage = "TLD"  # Move to TLD stage after querying ROOT servers
+            elif stage == "TLD":
+                stage = "AUTH"  # Move to AUTH stage after querying TLD servers
+            elif stage == "AUTH":
+                print(f"[ERROR] No more nameservers to query")
+                return  # Stop resolution if no more nameservers are available
         else:
             print(f"[ERROR] Query failed for {stage} {ns_ip}")
             return  # Stop resolution if a query fails
@@ -92,6 +110,7 @@ def recursive_dns_lookup(domain):
     try:
         # TODO: Perform recursive resolution using the system's DNS resolver
         # Notice that the next line is looping through, therefore you should have something like answer = ??
+        answer = dns.resolver.resolve(domain, "NS")
         for rdata in answer:
             print(f"[SUCCESS] {domain} -> {rdata}")
 
